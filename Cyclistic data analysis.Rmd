@@ -1,0 +1,236 @@
+---
+title: "Rideship data analysis"
+pdf_document: default
+---
+The goal from this analysis is to understand how casual riders and annual members use Cyclistic bikes differently. From these insights, we will design a new marketing strategy to convert casual riders into annual members. 
+For the analysis we used the past 12 months worth of data from the Cyclistic database.
+All data can be found on <https://divvy-tripdata.s3.amazonaws.com/index.html>
+
+# Setup
+
+## Loading the necessary packages
+
+```{r package loading, include=FALSE}
+
+library(readr)
+library(tidyverse) #for data import and wrangling
+library(dplyr)
+library(lubridate) #for date functions
+library(ggplot2) #for visualizations
+
+```
+
+## Importing the .csv files
+
+We download all the data files from <https://divvy-tripdata.s3.amazonaws.com/index.html> then we import them in our script
+
+```{r file imports, include=FALSE}
+
+dataset1 <- read_csv("citibike data/202107-divvy-tripdata.csv")
+dataset2 <- read_csv("citibike data/202108-divvy-tripdata.csv")
+dataset3 <- read_csv("citibike data/202109-divvy-tripdata.csv")
+dataset4 <- read_csv("citibike data/202110-divvy-tripdata.csv")
+dataset5 <- read_csv("citibike data/202111-divvy-tripdata.csv")
+dataset6 <- read_csv("citibike data/202112-divvy-tripdata.csv")
+dataset7 <- read_csv("citibike data/202201-divvy-tripdata.csv")
+dataset8 <- read_csv("citibike data/202202-divvy-tripdata.csv")
+dataset9 <- read_csv("citibike data/202203-divvy-tripdata.csv")
+dataset10 <- read_csv("citibike data/202204-divvy-tripdata.csv")
+dataset11 <- read_csv("citibike data/202205-divvy-tripdata.csv")
+dataset12 <- read_csv("citibike data/202206-divvy-tripdata.csv")
+
+```
+
+## Merging the files into one dataset
+
+We merge all the data files into one Dataset for easier analysis, then we print the resulting number of rows
+
+```{r merging datasets}
+
+merged_data <- rbind(dataset1,dataset2,dataset3,dataset4,dataset5,dataset6,dataset7,dataset8,dataset9,dataset10,dataset11,dataset12)
+
+nrows <- nrow(merged_data)
+print(paste("Number of rows:",nrows))
+
+```
+
+# Data Cleaning
+## Removing duplicates and formatting date/time
+
+To organize and clean our data we will format the dates and times into a consistent format, as well as delete the duplicate rows when found
+
+```{r removing duplicates, results='hide'}
+
+data_no_dups <- merged_data[!duplicated(merged_data$ride_id),]
+
+data_no_dups$started_at <- as.POSIXct(data_no_dups$started_at, "%Y-%m-%d %H:%M:%S")
+data_no_dups$ended_at <- as.POSIXct(data_no_dups$ended_at, "%Y-%m-%d %H:%M:%S")
+
+```
+
+## Removing missing values
+
+We figure out the number of missing values in each column. 
+
+```{r missing values per column}
+colSums(is.na(data_no_dups))
+```
+
+We find out that only the columns end_lat and end_lng contain missing values.
+
+```{r removing missing valies}
+
+#remove duplicate values
+dataset_no_na <- drop_na(data_no_dups, start_lat, end_lat, start_lng, end_lng)
+
+deleted_rows <- nrow(merged_data) - nrow(dataset_no_na)
+print(paste("Deleted rows:",deleted_rows))
+
+```
+
+## Creating additional columns for aggregation
+
+We extract additional columns from the already-existing date columns. We get days, months, and years out for us to have more flexibility in future aggreagations.
+
+```{r extracting date columns, results='hide'}
+
+dataset_no_na$start_date <- as.Date(dataset_no_na$started_at)
+dataset_no_na$start_month <- format(as.Date(dataset_no_na$started_at),"%m")
+dataset_no_na$start_day <- format(as.Date(dataset_no_na$started_at),"%d")
+dataset_no_na$start_hour <- format(as.POSIXct(dataset_no_na$started_at), format = "%H")
+dataset_no_na$start_year <- format(as.Date(dataset_no_na$started_at),"%Y")
+dataset_no_na$start_day_of_week <- format(as.Date(dataset_no_na$started_at),"%A")
+
+dataset_no_na$end_date <- as.Date(dataset_no_na$ended_at)
+dataset_no_na$end_month <- format(as.Date(dataset_no_na$ended_at),"%m")
+dataset_no_na$end_day <- format(as.Date(dataset_no_na$ended_at),"%d")
+dataset_no_na$end_year <- format(as.Date(dataset_no_na$ended_at),"%Y")
+dataset_no_na$end_day_of_week <- format(as.Date(dataset_no_na$ended_at),"%A")
+
+```
+
+
+## Calculating ride lengths
+
+We calculate the ride lengths for each entry in minutes
+```{r calculating ride lengths, results='hide'}
+
+# add a ride length column
+dataset_no_na <- mutate(dataset_no_na, ride_length = (ended_at-started_at))
+#converting it into numeric and dividing by 60 for minutes
+dataset_no_na$ride_length <- as.numeric(as.character(dataset_no_na$ride_length))
+dataset_no_na = mutate(dataset_no_na, ride_length = round(ride_length/60,digits=2))
+
+```
+
+We take a peek at our data
+
+```{r aggregating data}
+
+aggregate(dataset_no_na$ride_length ~dataset_no_na$member_casual, FUN =mean)
+aggregate(dataset_no_na$ride_length ~dataset_no_na$member_casual, FUN =median)
+aggregate(dataset_no_na$ride_length ~dataset_no_na$member_casual, FUN =max)
+aggregate(dataset_no_na$ride_length ~dataset_no_na$member_casual, FUN =min)
+
+```
+We notice there are negative values in this columns, we proceed to clean up the data by deleting those entries.
+
+```{r deleting negative values, results='hide'}
+
+#removing negative ride lengths:
+clean_dataset <- dataset_no_na[!(dataset_no_na$ride_length <=0),]
+
+```
+
+# Descriptive Analysis
+## Comparison across ride types
+
+```{r summarizing data}
+
+#summarizing data
+summary <- clean_dataset %>% 
+  summarize(mean(ride_length),median(ride_length),max(ride_length),min(ride_length))
+
+print(summary)
+
+```
+
+
+```{r comparing between rid types}
+
+#displaying the days of the week in order
+clean_dataset$start_day_of_week <- ordered(clean_dataset$start_day_of_week, levels = c("Saturday","Sunday","Monday","Tuesday","Wednesday","Thursday","Friday"))
+
+#analyzing ridership data by type and weekday
+clean_dataset %>% 
+  mutate(weekday = wday(started_at, label=TRUE)) %>%
+  group_by(member_casual,weekday) %>%
+  summarise(number_of_rides = n(), average_duration = mean(ride_length)) %>%
+  arrange(member_casual,weekday)
+
+```
+# Visualizations
+## Visualizing the number of rides by rider type
+
+```{r number of rides/rider type}
+
+clean_dataset %>%
+  mutate(weekday=wday(started_at, label=TRUE)) %>%
+  group_by(member_casual,weekday) %>%
+  summarise(number_of_rides = n(), average_duration = mean(ride_length)) %>%
+  arrange(member_casual,weekday) %>%
+  ggplot(aes(x=weekday, y=number_of_rides, fill=member_casual)) +
+  geom_col(position="dodge")
+
+```
+
+## Visualizing the average duration by rider type
+
+```{r average duration/rider type}
+
+clean_dataset %>%
+  mutate(weekday =wday(started_at,label=TRUE)) %>%
+  group_by(member_casual,weekday) %>%
+  summarise(number_of_rides=n(),average_duration=mean(ride_length)) %>%
+  arrange(member_casual,weekday) %>%
+  ggplot(aes(x=weekday,y=average_duration, fill=member_casual)) +
+  geom_col(position="dodge")
+
+```
+
+## Visualising number of rides per month
+
+Key insights: the busiest months during the year are from May to September, mainly dominated by casual riders
+
+```{r}
+
+clean_dataset %>%
+  group_by(member_casual,start_month) %>%
+  summarise(number_of_rides=n()) %>%
+  arrange(member_casual, start_month) %>%
+  ggplot(aes(x=start_month, y=number_of_rides, fill = member_casual)) +
+  geom_col(position="dodge")
+
+```
+
+## Visualizing busiest hours during the day
+
+Key insights: the busiest hours during the day are during the evenings also dominated by casual riders
+
+```{r}
+
+clean_dataset %>%
+  group_by(member_casual,start_day,start_hour) %>%
+  summarise(number_of_rides=n()) %>%
+  arrange(member_casual, start_day, start_hour) %>%
+  ggplot(aes(x=start_hour, y=number_of_rides, fill = member_casual)) +
+  geom_bar(position="stack", stat="identity")
+
+```
+
+# Recommendations
+Here are the top 3 recommendations to convert casual riders into members:
+
+ 1. Discount memberships for summer holidays and weekends
+ 2. Special points gained during evening hours for members + potential for doubling point gain at certain hours
+ 3. A one time payment prior to every casual riding period + usual hourly rates
